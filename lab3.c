@@ -73,8 +73,8 @@ int main(void)
 	HAL_GPIO_Init(GPIOC, &initC);
 	HAL_GPIO_WritePin( GPIOC, GPIO_PIN_8, GPIO_PIN_SET);
 	//configuring alternate functions
-	GPIO_InitTypeDef iniCTwo = { GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
-	HAL_GPIO_Init(GPIOC, &iniCTwo);
+	GPIO_InitTypeDef iniC1 = { GPIO_PIN_6 | GPIO_PIN_7, GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
+	HAL_GPIO_Init(GPIOC, &iniC1);
 	GPIOC->AFR[0] = 0;
 	
 	//Enabling timer2 peripheral
