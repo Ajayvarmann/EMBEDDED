@@ -1,3 +1,4 @@
+
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -48,11 +49,7 @@
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 void GPIO_Init(void);
-void USART_Init(void);
-void USART_SingleChar(char charVal);
-void USART_StringChar(char *string);
-char USART_ReadChar(void);
-void USART_LEDControl(void);
+void I2C_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -69,26 +66,61 @@ void USART_LEDControl(void);
 int main(void)
 {
   HAL_Init();
+  SystemClock_Config();
+
 	GPIO_Init();
-	USART_Init();
-	
+	I2C_Init();
 
-  while (1)
+	
+    I2C2->CR2 = (0x69 << 1) | (1 << 16) | I2C_CR2_START; //transmission parameters
+
+  //wait until TXIS or NACKF are set
+    while (!(I2C2->ISR & (I2C_ISR_TXIS | I2C_ISR_NACKF))) {
+      
+    }
+
+    
+    if (I2C2->ISR & I2C_ISR_NACKF) {
+     GPIOC->ODR ^= GPIO_ODR_6;
+    		
+    }
+ I2C2->TXDR = 0x0F; // WHO_AM_I register into TXDR
+		//wait until TC is set
+    while (!(I2C2->ISR & I2C_ISR_TC)) {
+       
+    }
+   I2C2->CR2 = (0x69 << 1) | (1 << 16) | I2C_CR2_RD_WRN | I2C_CR2_START; //reload CR2 with read
+		
+   //wait until RXNE or NACKF is set
+		while (!(I2C2->ISR & (I2C_ISR_RXNE | I2C_ISR_NACKF))) {
+       
+    }
+
+//error if NACKF is set   
+    if (I2C2->ISR & I2C_ISR_NACKF) {
+        GPIOC->ODR ^= GPIO_ODR_8;
+			
+    }
+
+    //Wait until TC is set
+    while (!(I2C2->ISR & I2C_ISR_TC)) {
+      
+    }
+
+  //check RXDR
+    if (I2C2->RXDR == 0xD3) {
+       
+       GPIOC->ODR ^= GPIO_ODR_9;  // Green lights up for expected value
+    } 
+		else {
+        
+       GPIOC->ODR ^= GPIO_ODR_6;  // RED Lights up for unexpected value
+    }
+      
+    I2C2->CR2 |= I2C_CR2_STOP; 
+	while (1)
   {
-		
-
-		USART_LEDControl();
-	
-		//5 Second Delay
-		//HAL_Delay(500);
-		//USART_SingleChar('f');
-		
-		
-		//char string[] = "damn!";
-    //USART_StringChar(string);
-		
-		
-		
+   
   }
 }
 
@@ -98,123 +130,43 @@ int main(void)
   */
 void GPIO_Init(void)
 {
-	//Enabling clk
+	//Enable GPIOB and GPIOC Clock
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 	
-	//RX 
-	GPIO_InitTypeDef rxTypeDef = {GPIO_PIN_11, GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF4_USART3};
-	HAL_GPIO_Init(GPIOB, &rxTypeDef);
+	// SDA  PB11
+	GPIO_InitTypeDef PB11 = {GPIO_PIN_11, GPIO_MODE_AF_OD, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF1_I2C2};
+	HAL_GPIO_Init(GPIOB, &PB11);
 	
-	//TX
-	GPIO_InitTypeDef txTypeDef = {GPIO_PIN_10, GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF4_USART3};
-	HAL_GPIO_Init(GPIOB, &txTypeDef);		
+	// SCL  PB13
+	GPIO_InitTypeDef PB13 = {GPIO_PIN_13, GPIO_MODE_AF_OD, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF5_I2C2};
+	HAL_GPIO_Init(GPIOB, &PB13);
 	
-	//LEDs
-	GPIO_InitTypeDef LEDTypeDef = {GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9, GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
-	HAL_GPIO_Init(GPIOC, &LEDTypeDef);
+	//Init PB14 Set High
+	GPIO_InitTypeDef PB14 = {GPIO_PIN_14, GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
+	HAL_GPIO_Init(GPIOB, &PB14);
+	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
 	
+	// PC0 Set High
+	GPIO_InitTypeDef PC0 = {GPIO_PIN_0, GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
+	HAL_GPIO_Init(GPIOC, &PC0);
+	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
 	
-	
-	return;
+	//LED Pins
+	GPIO_InitTypeDef ledTypeDef = {GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9,
+	GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
+	HAL_GPIO_Init(GPIOC, &ledTypeDef);
 }
 
-/**
-  * @brief  Initiates the USART
-  * @retval None
-  */
-void USART_Init(void)
+void I2C_Init(void)
 {
+	//Enable the CLK to the I2C2 peripheral
+	__HAL_RCC_I2C2_CLK_ENABLE();
 	
-	__HAL_RCC_USART3_CLK_ENABLE();
 	
-	//Set Baud Rate
-	USART3->BRR = HAL_RCC_GetHCLKFreq()/115200;
+	I2C2->TIMINGR |= ((1 << 28) | (1 << 4) | (1 << 0) | (1 << 1) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 17) | (1 << 22));
 	
-	//Enable Tx and Rx
-	USART3->CR1 |= ((1 << 3) | (1 << 2));
-	
-	//Enable the USART3
-	USART3->CR1 |= (1 << 0);
-	
-	return;
-}
-
-/**
-  * @brief  Method for sending a character through a UART connection.
-  * @retval None
-  */
-void USART_SingleChar(char charVal)
-{
-	//TX data register is empty before writing to it.
-	while(!(USART3->ISR & (1 << 7)));
-	
-	//Write data to send.
-	USART3->TDR = charVal;
-	
-	return;
-}
-
-/**
-  * @brief  Method for sending a string through a UART connection.
-  * @retval None
-  */
-void USART_StringChar(char *string)
-{
-	int i = 0;
-	
-	while(string[i] != '\0')
-	{
-		USART_SingleChar(string[i]);
-		i++;
-	}
-	
-	return;
-}
-
-/**
-  * @brief  Waits for the read reg to not be empty and reads its value.
-  * @retval Value that was read from the USART.
-  */
-char USART_ReadChar(void)
-{
-	//Wait until the read register is not empty.
-	while(!(USART3->ISR & (1 << 5)));
-	
-	//Return value of return register.
-	return USART3->RDR;
-}
-
-/**
-  * @brief  Controls the LEDs based on USART input. Puts error message if there is an error.
-  * @retval None
-  */
-void USART_LEDControl(void)
-{
-	//Wait and read for input
-	char input = USART_ReadChar();
-	
-
-	switch(input)
-	{
-		case 'r':
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_6);
-			break;
-		case 'o':
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_8);
-			break;
-		case 'g':
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_9);
-			break;
-		case 'b':
-			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_7);
-			break;
-		default:
-		{
-			char str[] = "Invalid";
-      USART_StringChar(str);
-		}
-	}
+	I2C2->CR1 |= (1 << 0);
 }
 
 
