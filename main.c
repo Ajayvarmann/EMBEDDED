@@ -1,4 +1,3 @@
-
 /* USER CODE BEGIN Header */
 /**
   ******************************************************************************
@@ -47,15 +46,21 @@
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-void SystemClock_Config(void);
-void GPIO_Init(void);
-void I2C_Init(void);
+void SysClockConfig(void);
+void InitGPIO(void);
+void InitI2C(void);
+void ReadGyroXAxis(void);
+void ReadGyroYAxis(void);
+void ActivateGyro(void);
+void ConfigureGyro(void);
+
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int16_t xAxisValue = 0, yAxisValue = 0;
 
 /* USER CODE END 0 */
 
@@ -63,86 +68,430 @@ void I2C_Init(void);
   * @brief  The application entry point.
   * @retval int
   */
-int main(void)
-{
+int main(void) {
   HAL_Init();
-  SystemClock_Config();
+  SysClockConfig();
 
-	GPIO_Init();
-	I2C_Init();
-
-	
-    I2C2->CR2 = (0x69 << 1) | (1 << 16) | I2C_CR2_START; //transmission parameters
-
-  //wait until TXIS or NACKF are set
-    while (!(I2C2->ISR & (I2C_ISR_TXIS | I2C_ISR_NACKF))) {
-      
-    }
-
+  InitGPIO();
+  InitI2C();
+  
+  xAxisValue = 0;
+  yAxisValue = 0;
+  
+  ConfigureGyro();
+  ActivateGyro();
+  
+  while (1) {
+    ReadGyroXAxis();
+    ReadGyroYAxis();
     
-    if (I2C2->ISR & I2C_ISR_NACKF) {
-     GPIOC->ODR ^= GPIO_ODR_6;
-    		
+    // X-axis 
+    if (xAxisValue > 7000) {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);  // Green LED On
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_RESET); // Red LED Off
+    } else if (xAxisValue < -7000) {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8, GPIO_PIN_SET);   // Red LED On
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET); // Green LED Off
+    } else {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_8 | GPIO_PIN_9, GPIO_PIN_RESET); // Both LEDs Off
     }
- I2C2->TXDR = 0x0F; // WHO_AM_I register into TXDR
-		//wait until TC is set
-    while (!(I2C2->ISR & I2C_ISR_TC)) {
-       
+    
+    // Y-axis
+    if (yAxisValue > 7000) {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);   // Blue LED On
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_RESET); // orange LED Off
+    } else if (yAxisValue < -7000) {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_SET);   // orange LED On
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_RESET); // Blue LED Off
+    } else {
+      HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_RESET); // Both LEDs Off
     }
-   I2C2->CR2 = (0x69 << 1) | (1 << 16) | I2C_CR2_RD_WRN | I2C_CR2_START; //reload CR2 with read
-		
-   //wait until RXNE or NACKF is set
-		while (!(I2C2->ISR & (I2C_ISR_RXNE | I2C_ISR_NACKF))) {
-       
-    }
-
-//error if NACKF is set   
-    if (I2C2->ISR & I2C_ISR_NACKF) {
-        GPIOC->ODR ^= GPIO_ODR_8;
-			
-    }
-
-    //Wait until TC is set
-    while (!(I2C2->ISR & I2C_ISR_TC)) {
-      
-    }
-
-  //check RXDR
-    if (I2C2->RXDR == 0xD3) {
-       
-       GPIOC->ODR ^= GPIO_ODR_9;  // Green lights up for expected value
-    } 
-		else {
-        
-       GPIOC->ODR ^= GPIO_ODR_6;  // RED Lights up for unexpected value
-    }
-      
-    I2C2->CR2 |= I2C_CR2_STOP; 
-	while (1)
-  {
-   
+    
+    HAL_Delay(200);
   }
+}
+
+
+void ReadGyroXAxis(void) {
+	xAxisValue = 0;
+
+	//WRITE
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 1
+	I2C2->CR2 |= (1 << 16);
+	//Enable a write
+	I2C2->CR2 &= ~(1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 1))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	//Set the transmit data
+	I2C2->TXDR = 0xA8;
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//READ
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 2
+	I2C2->CR2 |= (1 << 17);
+	//Enable a read
+	I2C2->CR2 |= (1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the RXNE Flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 2))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	xAxisValue |= I2C2->RXDR;
+	
+	//Wait for the RXNE Flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 2))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	xAxisValue |= ((I2C2->RXDR) << 8);
+	
+	//Wait for the TC
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//Send  stop bit
+	I2C2->CR2 |= (1 << 14);
+	
+	//Wait for the stop condition 
+  while(I2C2->CR2 & (1 << 14))
+  {
+        
+  }
+
+  //Clear the stop bit
+  I2C2->CR2 &= ~(1 << 14);
+	
+}
+void ReadGyroYAxis(void)
+ {
+	yAxisValue = 0;
+
+	//WRITE
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 1
+	I2C2->CR2 |= (1 << 16);
+	//Enable a write
+	I2C2->CR2 &= ~(1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 1))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	//Set the transmit data
+	I2C2->TXDR = 0xAA;
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//READ
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 2
+	I2C2->CR2 |= (1 << 17);
+	//Enable a read
+	I2C2->CR2 |= (1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the RXNE Flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 2))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	yAxisValue |= I2C2->RXDR;
+	
+	//Wait for the RXNE Flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 2))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	yAxisValue|= ((I2C2->RXDR) << 8);
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//Send the stop bit
+	I2C2->CR2 |= (1 << 14);
+	
+	//Wait for the stop condition to be generated
+  while(I2C2->CR2 & (1 << 14))
+  {
+        
+  }
+
+  //Clear the stop bit
+  I2C2->CR2 &= ~(1 << 14);
+	
+}
+
+void ActivateGyro(void){
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 2
+	I2C2->CR2 |= (2 << 16);
+	//Enable a write
+	I2C2->CR2 &= ~(1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 1))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	//Set the transmit data
+	I2C2->TXDR = 0x20;
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 1))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	I2C2->TXDR = 0x0B;
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//Send the stop bit
+	I2C2->CR2 |= (1 << 14);
+	
+	//Wait for the stop condition to be generated
+  while(I2C2->CR2 & (1 << 14))
+  {
+        
+  }
+
+  //Clear the stop bit
+  I2C2->CR2 &= ~(1 << 14);
+	
+}
+
+void ConfigureGyro(void) {
+	//WRITE
+	//Set the slave address
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 1
+	I2C2->CR2 |= (1 << 16);
+	//Enable a write
+	I2C2->CR2 &= ~(1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 1))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+	
+	//Set the transmit data
+	I2C2->TXDR = 0x0F;
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//READ
+	I2C2->CR2 |= (0x69 << 1);
+	//Clear # of Bytes
+	I2C2->CR2 &= ~(0xFF << 16);
+	//Set the # of bytes to 1
+	I2C2->CR2 |= (1 << 16);
+	//Enable a read
+	I2C2->CR2 |= (1 << 10);
+	//Enable the start bit
+	I2C2->CR2 |= (1 << 13);
+	
+	//Wait for the TXIS flag
+	while(1)
+	{
+		if((I2C2->ISR & (1 << 2))) {
+			break;
+		}
+		
+		if((I2C2->ISR & (1 << 4))) {
+			while(1) {
+				//Enable red LED if there was an error
+				HAL_GPIO_WritePin(GPIOC, GPIO_PIN_6, GPIO_PIN_SET);
+			}
+		}
+	}
+
+	uint32_t RXData = I2C2->RXDR;
+	
+	//Wait for the transmit complete flag
+	while(!(I2C2->ISR & (1 << 6)))
+	{
+		
+	}
+	
+	//Send the stop bit
+	I2C2->CR2 |= (1 << 14);
+
+	//Wait for the stop condition to be generated
+  while(I2C2->CR2 & (1 << 14))
+  {
+        
+  }
+
+  //Clear the stop bit
+  I2C2->CR2 &= ~(1 << 14);
 }
 
 /**
   * @brief  Initiates GPIO Pins
   * @retval None
   */
-void GPIO_Init(void)
+void InitGPIO(void)
 {
 	//Enable GPIOB and GPIOC Clock
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 	
-	// SDA  PB11
+	//SDA pin PB11
 	GPIO_InitTypeDef PB11 = {GPIO_PIN_11, GPIO_MODE_AF_OD, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF1_I2C2};
 	HAL_GPIO_Init(GPIOB, &PB11);
 	
-	// SCL  PB13
+	// SCL pin PB13
 	GPIO_InitTypeDef PB13 = {GPIO_PIN_13, GPIO_MODE_AF_OD, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL, GPIO_AF5_I2C2};
 	HAL_GPIO_Init(GPIOB, &PB13);
 	
-	//Init PB14 Set High
+	// PB14 Set High
 	GPIO_InitTypeDef PB14 = {GPIO_PIN_14, GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
 	HAL_GPIO_Init(GPIOB, &PB14);
 	HAL_GPIO_WritePin(GPIOB, GPIO_PIN_14, GPIO_PIN_SET);
@@ -152,20 +501,21 @@ void GPIO_Init(void)
 	HAL_GPIO_Init(GPIOC, &PC0);
 	HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);
 	
-	//LED Pins
+	// LED Pins
 	GPIO_InitTypeDef ledTypeDef = {GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_8 | GPIO_PIN_9,
 	GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
 	HAL_GPIO_Init(GPIOC, &ledTypeDef);
 }
 
-void I2C_Init(void)
+void InitI2C(void)
 {
-	//Enable the CLK to the I2C2 peripheral
+	// I2C2 peripheral clk
 	__HAL_RCC_I2C2_CLK_ENABLE();
 	
-	
+	//Set all of the timer bits 
 	I2C2->TIMINGR |= ((1 << 28) | (1 << 4) | (1 << 0) | (1 << 1) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 17) | (1 << 22));
 	
+	//Enable the I2C peripheral
 	I2C2->CR1 |= (1 << 0);
 }
 
@@ -174,7 +524,7 @@ void I2C_Init(void)
   * @brief System Clock Configuration
   * @retval None
   */
-void SystemClock_Config(void)
+void SysClockConfig(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
