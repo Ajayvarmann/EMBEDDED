@@ -52,9 +52,7 @@ void GPIO_Init(void);
 /* USER CODE BEGIN PFP */
 
 
-// Sine Wave: 8-bit, 32 samples/cycle
-const uint8_t sine_table[32] = {127,151,175,197,216,232,244,251,254,251,244,
-232,216,197,175,151,127,102,78,56,37,21,9,2,0,2,9,21,37,56,78,102};
+
 
 	uint32_t waveIndex = 0;
 /* USER CODE END PFP */
@@ -79,6 +77,8 @@ int main(void)
 	
 	//Enable the ADC1 in the RCC
 	__HAL_RCC_ADC1_CLK_ENABLE();
+	
+	
 	
 
 
@@ -109,13 +109,25 @@ int main(void)
 			break;
 		}
 	}
+	//enable DAC channel 1
+	DAC1->CR |= (1 << 0);
+	
 	
 	//Start the ADC
 	ADC1->CR |= (1 << 2);
+	const uint8_t sine_table[32] = {127,151,175,197,216,232,244,251,254,251,244,
+232,216,197,175,151,127,102,78,56,37,21,9,2,0,2,9,21,37,56,78,102};
 
+int i = 0; //index for wave table
 
   while (1)
   {
+		//output wave table to DAC
+		DAC1->DHR8R1 = sine_table[i];
+		i = i + 1;
+		if (i == 31)
+			i = 0;
+		
 		uint8_t ADCData = (ADC1->DR & 0xFF);
 		
 		if(ADCData > 30) {
@@ -141,19 +153,13 @@ int main(void)
 		} else {
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
 		}
-		// Set the current table index in the DAC and increment index
-DAC1->DHR8R1 = sine_table[waveIndex];
-waveIndex++;
-
-// Reset waveIndex if it exceeds the table size
-if(waveIndex > 31) {
-    waveIndex = 0;
+		
 }
 
 // Introduce a slight delay
 HAL_Delay(1);
   }
-}
+
 void DAC_Init(void)
 {
 	//Pin PA4
@@ -171,43 +177,9 @@ void DAC_Init(void)
   * @brief  Initiates GPIO Pins
   * @retval None
   */
-void USART_Configuration(void)
-{
-    __HAL_RCC_USART3_CLK_ENABLE(); // Enable the USART 3 Clock
-    
-    USART3->BRR = HAL_RCC_GetHCLKFreq() / 115200; // Set baud rate
-    
-    USART3->CR1 |= ((1 << 3) | (1 << 2)); // Enable TX (bit 3) and RX (bit 2)
-    
-    USART3->CR1 |= (1 << 0); // Enable USART3 (bit 0)
-    
-    
-}
-void USART_SendChar(char dataChar)
-{
-    // Ensure TX data register is empty 
-    while(!(USART3->ISR & (1 << 7)));
-    
-    // Write the transmit data
-    USART3->TDR = dataChar;
-    
-    return;
-}
 
 
-void USART_SendString(char *strData)
-{
-    int index = 0;
-    
-    // every elements of the string
-    while(strData[index] != '\0')
-    {
-        USART_SendChar(strData[index]);
-        index++;
-    }
-    
-    return;
-}
+
 
 void GPIO_Init(void)
 {
@@ -215,6 +187,7 @@ void GPIO_Init(void)
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 	__HAL_RCC_GPIOA_CLK_ENABLE();
+	__HAL_RCC_DAC1_CLK_ENABLE();
 	
 	//Enable ADC Input  PC0
 	GPIO_InitTypeDef ADCINTypeDef = {GPIO_PIN_0, GPIO_MODE_ANALOG, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
