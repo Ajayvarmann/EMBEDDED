@@ -56,7 +56,7 @@ void GPIO_Init(void);
 const uint8_t sine_table[32] = {127,151,175,197,216,232,244,251,254,251,244,
 232,216,197,175,151,127,102,78,56,37,21,9,2,0,2,9,21,37,56,78,102};
 
-	uint32_t currentIndex = 0;
+	uint32_t waveIndex = 0;
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -141,13 +141,73 @@ int main(void)
 		} else {
 			HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_RESET);
 		}
+		// Set the current table index in the DAC and increment index
+DAC1->DHR8R1 = sine_table[waveIndex];
+waveIndex++;
+
+// Reset waveIndex if it exceeds the table size
+if(waveIndex > 31) {
+    waveIndex = 0;
+}
+
+// Introduce a slight delay
+HAL_Delay(1);
   }
+}
+void DAC_Init(void)
+{
+	//Pin PA4
+	//Enable the DAC 
+	__HAL_RCC_DAC1_CLK_ENABLE();
+	
+	//Enable Software Trigger for Channel 1
+	DAC1->CR |= ((1 << 5) | (1 << 4) | (1 << 3));
+	
+	//Enable Channel 1
+	DAC1->CR |= (1 << 0);
 }
 
 /**
   * @brief  Initiates GPIO Pins
   * @retval None
   */
+void USART_Configuration(void)
+{
+    __HAL_RCC_USART3_CLK_ENABLE(); // Enable the USART 3 Clock
+    
+    USART3->BRR = HAL_RCC_GetHCLKFreq() / 115200; // Set baud rate
+    
+    USART3->CR1 |= ((1 << 3) | (1 << 2)); // Enable TX (bit 3) and RX (bit 2)
+    
+    USART3->CR1 |= (1 << 0); // Enable USART3 (bit 0)
+    
+    
+}
+void USART_SendChar(char dataChar)
+{
+    // Ensure TX data register is empty 
+    while(!(USART3->ISR & (1 << 7)));
+    
+    // Write the transmit data
+    USART3->TDR = dataChar;
+    
+    return;
+}
+
+
+void USART_SendString(char *strData)
+{
+    int index = 0;
+    
+    // every elements of the string
+    while(strData[index] != '\0')
+    {
+        USART_SendChar(strData[index]);
+        index++;
+    }
+    
+    return;
+}
 
 void GPIO_Init(void)
 {
@@ -165,7 +225,9 @@ void GPIO_Init(void)
 	GPIO_MODE_OUTPUT_PP, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
 	HAL_GPIO_Init(GPIOC, &ledTypeDef);
 	
-	
+	//enable DAC PA4
+	GPIO_InitTypeDef dacTypeDef = {GPIO_PIN_4, GPIO_MODE_ANALOG, GPIO_SPEED_FREQ_LOW, GPIO_NOPULL};
+	HAL_GPIO_Init(GPIOA, &dacTypeDef);
 }
 
 
